@@ -6,7 +6,8 @@ param(
   [switch]$AutoCommit,
   [switch]$Draft,
   [switch]$SkipTests,
-  [switch]$VerboseLogs
+  [switch]$VerboseLogs,
+  [switch]$Yes
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,6 +88,26 @@ function Invoke-Checked {
   return $output
 }
 
+function Confirm-Action {
+  param(
+    [string]$Prompt,
+    [string]$CancelMessage = "Cancelled."
+  )
+
+  if ($Yes) {
+    Write-Ok "Confirmation skipped because -Yes was provided"
+    return
+  }
+
+  Write-Host ""
+  $answer = Read-Host "$Prompt Type YES to continue"
+  if ($answer -ne "YES") {
+    Write-Host ""
+    Write-Host $CancelMessage
+    exit 0
+  }
+}
+
 Write-Header "GitHub Pull Request Automation"
 
 Write-Step "Checking required tools"
@@ -152,6 +173,16 @@ if ($status) {
     Fail "-CommitMessage is required when using -AutoCommit."
   }
 
+  Write-Header "Permission Required"
+  Write-Host "The next step will create a local Git commit."
+  Write-Host ""
+  Write-Host "Commit message: $CommitMessage"
+  Write-Host ""
+  Write-Host "Files:"
+  $changedWorkingTreeFiles | ForEach-Object { Write-Host "- $_" }
+
+  Confirm-Action "Allow local commit?" "Cancelled. No commit, branch push, or pull request was created."
+
   Invoke-Checked "Git commit failed." {
     git add -A
     git commit -m $CommitMessage
@@ -202,6 +233,21 @@ if ($VerboseLogs -and $changeStat.Count -gt 0) {
   Write-Host "Change summary:"
   $changeStat | ForEach-Object { Write-Host $_ }
 }
+
+Write-Header "Permission Required"
+Write-Host "The next steps will publish this work to GitHub."
+Write-Host ""
+Write-Host "Branch       : $branch"
+Write-Host "Base         : $BaseBranch"
+Write-Host "Commits      : $aheadCount"
+Write-Host "Tests        : $(if ($SkipTests) { 'Skipped' } else { 'Passed' })"
+Write-Host "Draft PR     : $(if ($Draft) { 'Yes' } else { 'No' })"
+Write-Host ""
+Write-Host "Actions:"
+Write-Host "- Push branch to origin/$branch"
+Write-Host "- Create a new PR, or show the existing open PR"
+
+Confirm-Action "Allow GitHub push and PR operation?" "Cancelled. No branch was pushed and no pull request was created."
 
 Write-Step "Pushing branch to GitHub"
 Invoke-Checked "Push failed. Check your remote permissions and branch name." {
