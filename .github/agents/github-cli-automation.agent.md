@@ -47,13 +47,19 @@ Validate the repository, review the current branch, run the project checks, push
    .\gradlew.bat test
    ```
 
-5. If the user wants the agent to commit local changes, use:
+5. If the user wants the agent to commit local changes and infer a Conventional Commit message plus PR title from changed files, use:
 
    ```powershell
-   .\.github\scripts\create-pr.ps1 -AutoCommit -CommitMessage "Describe the change" -Title "Describe the PR"
+   .\.github\scripts\create-pr.ps1 -AutoCommit
    ```
 
-6. If changes are already committed, use:
+6. If the user wants to provide the Conventional Commit details manually, use:
+
+   ```powershell
+   .\.github\scripts\create-pr.ps1 -AutoCommit -CommitType feat -CommitScope github-cli -CommitDescription "add PR automation" -Title "Add GitHub CLI PR automation"
+   ```
+
+7. If changes are already committed, use:
 
    ```powershell
    .\.github\scripts\create-pr.ps1 -Title "Describe the PR"
@@ -63,6 +69,8 @@ Validate the repository, review the current branch, run the project checks, push
 
 - Do not create pull requests from `main` or `master`; ask the user to switch to a feature branch.
 - Do not commit local changes unless the user explicitly asks for that or passes `-AutoCommit`.
+- Use Conventional Commits for auto-created commits, for example `feat(github-cli): add PR automation`.
+- Ask for terminal confirmation before creating a local commit, pushing a branch, or creating a pull request.
 - If a PR already exists for the branch, return the existing PR URL instead of creating a duplicate.
 - If tests fail, stop and report the failure before creating the PR.
 - Use clear PR titles and concise PR bodies based on the actual changed files.

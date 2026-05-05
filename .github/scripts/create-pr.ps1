@@ -3,6 +3,11 @@ param(
   [string]$Title = "",
   [string]$Body = "",
   [string]$CommitMessage = "",
+  [ValidateSet("feat", "fix", "docs", "style", "refactor", "perf", "test", "build", "ci", "chore", "revert")]
+  [string]$CommitType = "",
+  [string]$CommitScope = "",
+  [string]$CommitDescription = "",
+  [switch]$BreakingChange,
   [switch]$AutoCommit,
   [switch]$Draft,
   [switch]$SkipTests,
@@ -108,6 +113,126 @@ function Confirm-Action {
   }
 }
 
+function Test-ConventionalCommit {
+  param([string]$Message)
+  return $Message -match '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: .+'
+}
+
+function New-ConventionalCommitMessage {
+  param(
+    [string]$Type,
+    [string]$Scope,
+    [string]$Description,
+    [bool]$IsBreaking
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Type) -and [string]::IsNullOrWhiteSpace($Description)) {
+    return ""
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Type)) {
+    Fail "-CommitType is required when using -CommitDescription."
+  }
+
+  if ([string]::IsNullOrWhiteSpace($Description)) {
+    Fail "-CommitDescription is required when using -CommitType."
+  }
+
+  $normalizedDescription = $Description.Trim()
+  if ($normalizedDescription.EndsWith(".")) {
+    Fail "Conventional commit descriptions should not end with a period." @(
+      "Use: $Type`: $($normalizedDescription.TrimEnd('.'))"
+    )
+  }
+
+  $scopePart = ""
+  if (-not [string]::IsNullOrWhiteSpace($Scope)) {
+    $normalizedScope = $Scope.Trim().ToLowerInvariant()
+    if ($normalizedScope -notmatch '^[a-z0-9-]+$') {
+      Fail "-CommitScope must use lowercase letters, numbers, and hyphens only." @(
+        "Example: github-cli, kafka, api"
+      )
+    }
+    $scopePart = "($normalizedScope)"
+  }
+
+  $breakingPart = ""
+  if ($IsBreaking) {
+    $breakingPart = "!"
+  }
+
+  return "$Type$scopePart$breakingPart`: $normalizedDescription"
+}
+
+function Get-ChangeSummary {
+  param([string[]]$Files)
+
+  $summary = @{
+    Type = "chore"
+    Scope = "repo"
+    Description = "update project files"
+    Title = "Update project files"
+  }
+
+  if ($Files | Where-Object { $_ -like ".github/scripts/*" }) {
+    $summary.Type = "feat"
+    $summary.Scope = "github-cli"
+    $summary.Description = "update PR automation script"
+    $summary.Title = "Update GitHub CLI PR automation"
+    return $summary
+  }
+
+  if ($Files | Where-Object { $_ -like ".github/workflows/*" }) {
+    $summary.Type = "ci"
+    $summary.Scope = "github-actions"
+    $summary.Description = "update PR automation workflow"
+    $summary.Title = "Update GitHub Actions PR automation"
+    return $summary
+  }
+
+  if ($Files | Where-Object { $_ -like ".github/agents/*" }) {
+    $summary.Type = "docs"
+    $summary.Scope = "github-cli"
+    $summary.Description = "update automation agent instructions"
+    $summary.Title = "Update GitHub CLI automation agent"
+    return $summary
+  }
+
+  if ($Files | Where-Object { $_ -like "src/test/*" }) {
+    $summary.Type = "test"
+    $summary.Scope = "kafka"
+    $summary.Description = "update test coverage"
+    $summary.Title = "Update test coverage"
+    return $summary
+  }
+
+  if ($Files | Where-Object { $_ -like "src/main/*" }) {
+    $summary.Type = "feat"
+    $summary.Scope = "kafka"
+    $summary.Description = "update application behavior"
+    $summary.Title = "Update Kafka demo behavior"
+    return $summary
+  }
+
+  if ($Files | Where-Object { $_ -in @("build.gradle", "settings.gradle") -or $_ -like "gradle/*" }) {
+    $summary.Type = "build"
+    $summary.Scope = "gradle"
+    $summary.Description = "update build configuration"
+    $summary.Title = "Update Gradle build configuration"
+    return $summary
+  }
+
+  if ($Files | Where-Object { $_ -like "*.md" }) {
+    $summary.Type = "docs"
+    $summary.Scope = "repo"
+    $summary.Description = "update documentation"
+    $summary.Title = "Update documentation"
+    return $summary
+  }
+
+  return $summary
+}
+
 Write-Header "GitHub Pull Request Automation"
 
 Write-Step "Checking required tools"
@@ -159,6 +284,7 @@ $status = git status --porcelain
 if ($status) {
   Write-Step "Preparing local changes"
   $changedWorkingTreeFiles = git status --short
+  $changedWorkingTreePaths = @(git status --porcelain | ForEach-Object { $_.Substring(3).Trim() })
   Write-Info "Files currently changed:"
   $changedWorkingTreeFiles | ForEach-Object { Write-Info $_ }
 
@@ -170,13 +296,50 @@ if ($status) {
   }
 
   if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
-    Fail "-CommitMessage is required when using -AutoCommit."
+    $CommitMessage = New-ConventionalCommitMessage `
+      -Type $CommitType `
+      -Scope $CommitScope `
+      -Description $CommitDescription `
+      -IsBreaking $BreakingChange.IsPresent
+  }
+
+  if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
+    $autoSummary = Get-ChangeSummary -Files $changedWorkingTreePaths
+    $CommitMessage = New-ConventionalCommitMessage `
+      -Type $autoSummary.Type `
+      -Scope $autoSummary.Scope `
+      -Description $autoSummary.Description `
+      -IsBreaking $BreakingChange.IsPresent
+
+    if ([string]::IsNullOrWhiteSpace($Title)) {
+      $Title = $autoSummary.Title
+    }
+  }
+
+  if ([string]::IsNullOrWhiteSpace($CommitMessage)) {
+    Fail "A commit message is required when using -AutoCommit." @(
+      "Option 1: -CommitMessage `"feat(github-cli): add PR automation`"",
+      "Option 2: -CommitType feat -CommitScope github-cli -CommitDescription `"add PR automation`"",
+      "Option 3: omit commit message fields and let the script infer them from changed files"
+    )
+  }
+
+  if (-not (Test-ConventionalCommit $CommitMessage)) {
+    Fail "Commit message must follow Conventional Commits." @(
+      "Expected: type(optional-scope): description",
+      "Examples:",
+      "feat(github-cli): add PR automation",
+      "fix(kafka): handle consumer retry",
+      "docs: update setup instructions",
+      "Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+    )
   }
 
   Write-Header "Permission Required"
   Write-Host "The next step will create a local Git commit."
   Write-Host ""
   Write-Host "Commit message: $CommitMessage"
+  Write-Host "PR title      : $(if ([string]::IsNullOrWhiteSpace($Title)) { $CommitMessage } else { $Title })"
   Write-Host ""
   Write-Host "Files:"
   $changedWorkingTreeFiles | ForEach-Object { Write-Host "- $_" }
