@@ -11,4 +11,6 @@ public class KafkaTopicConfig {
     public NewTopic myTopic() {
         return new NewTopic("my-topic", 3, (short) 1);
     }
+
+    
 }
