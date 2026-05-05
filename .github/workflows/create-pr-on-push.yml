@@ -1,0 +1,52 @@
+name: Auto-create PR on push
+
+on:
+  push:
+    branches-ignore:
+      - main
+      - master
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BASE_BRANCH: main
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create PR with GitHub CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          branch="${GITHUB_REF_NAME}"
+          base="${BASE_BRANCH}"
+
+          echo "Branch: ${branch}"
+          echo "Base: ${base}"
+
+          existing_url="$(gh pr list \
+            --head "${branch}" \
+            --base "${base}" \
+            --state open \
+            --json url \
+            --jq '.[0].url')"
+
+          if [[ -n "${existing_url}" ]]; then
+            echo "PR already exists: ${existing_url}"
+            exit 0
+          fi
+
+          gh pr create \
+            --base "${base}" \
+            --head "${branch}" \
+            --title "Auto PR: ${branch}" \
+            --body "This pull request was created automatically for branch ${branch}."

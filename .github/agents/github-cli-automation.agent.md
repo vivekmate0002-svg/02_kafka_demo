@@ -1,120 +1,68 @@
 ---
 name: github-cli-automation
-description: Automates GitHub Pull Request creation using GitHub CLI by reviewing git changes
+description: Create or update GitHub pull requests from local repository changes using the GitHub CLI.
 tools: ['execute', 'read']
 ---
 
-## 🔹 Purpose
-Automate Pull Request creation using GitHub CLI (`gh`) with clear step-by-step feedback and change visibility.
+# GitHub CLI PR Automation Agent
 
----
+Use this agent when the user wants an AI-assisted GitHub workflow that turns local code changes into a pull request with `gh`.
 
-## 🔹 Workflow
+## Goal
 
-### 1. Validate Git Repository
-Print:
-"🔍 Checking if current directory is a git repository..."
+Validate the repository, review the current branch, run the project checks, push the branch, and create a GitHub pull request using GitHub CLI.
 
-Run:
-git rev-parse --is-inside-work-tree
+## Required Tools
 
-If fails:
-Stop and say:
-"❌ Not a git repository.
-👉 Fix: Run `git init` or navigate to a valid repository."
+- `git`
+- `gh`
+- For this project: `./gradlew.bat test` on Windows or `./gradlew test` on Linux/macOS
 
-If success:
-Print:
-"✅ Git repository detected"
+## Workflow
 
----
+1. Confirm the current directory is a Git work tree:
 
-### 2. Check Changes
-Print:
-"🔍 Checking for staged or committed changes..."
+   ```powershell
+   git rev-parse --is-inside-work-tree
+   ```
 
-Run:
-git status --porcelain
+2. Confirm GitHub CLI is installed and authenticated:
 
-If empty:
-Stop and say:
-"❌ No changes found.
-👉 Fix:
-git add .
-git commit -m 'your message'"
+   ```powershell
+   gh --version
+   gh auth status
+   ```
 
-If success:
-Print:
-"✅ Changes detected"
+3. Check branch and changes:
 
----
+   ```powershell
+   git branch --show-current
+   git status --short
+   git diff --stat
+   ```
 
-### 3. Review Changes
+4. Run tests before creating the PR:
 
-Print:
-"📊 Analyzing current branch and changes..."
+   ```powershell
+   .\gradlew.bat test
+   ```
 
-Run:
-git branch --show-current
+5. If the user wants the agent to commit local changes, use:
 
-Run:
-git diff --name-only
+   ```powershell
+   .\.github\scripts\create-pr.ps1 -AutoCommit -CommitMessage "Describe the change" -Title "Describe the PR"
+   ```
 
-Run:
-git diff --stat
+6. If changes are already committed, use:
 
----
+   ```powershell
+   .\.github\scripts\create-pr.ps1 -Title "Describe the PR"
+   ```
 
-### Output Review Summary
+## Behavior Rules
 
-Print:
-
-"🌿 Branch:"
-(output of git branch --show-current)
-
-"📂 Files changed:"
-(output of git diff --name-only)
-
-"📈 Change stats:"
-(output of git diff --stat)
-
----
-
-### 4. Push Branch
-
-Print:
-"🚀 Pushing branch to remote repository..."
-
-Run:
-git push -u origin $(git branch --show-current)
-
-If fails:
-Stop and say:
-"❌ Push failed.
-👉 Fix: Check remote origin or authentication."
-
-If success:
-Print:
-"✅ Branch pushed successfully"
-
----
-
-### 5. Create Pull Request
-
-Print:
-"🔧 Creating Pull Request using GitHub CLI..."
-
-Run:
-gh pr create
-
-If fails:
-Stop and say:
-"❌ PR creation failed.
-👉 Fix: Run `gh auth login` and try again."
-
----
-
-### ✅ Success
-
-Print:
-"🎉 Pull Request created successfully!"
+- Do not create pull requests from `main` or `master`; ask the user to switch to a feature branch.
+- Do not commit local changes unless the user explicitly asks for that or passes `-AutoCommit`.
+- If a PR already exists for the branch, return the existing PR URL instead of creating a duplicate.
+- If tests fail, stop and report the failure before creating the PR.
+- Use clear PR titles and concise PR bodies based on the actual changed files.
